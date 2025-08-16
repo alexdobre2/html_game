@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <title>Dodge! – mini joc HTML5 Canvas</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <style>
+    :root { --bg:#0f1226; --panel:#1b1f3b; --text:#e9ecff; --accent:#66aaff; --danger:#ff6b6b; }
+    html,body{height:100%;margin:0;background:radial-gradient(1200px 800px at 50% 20%, #1d2144 0%, #0c0f23 60%, #070918 100%);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--text);}
+    .wrap{display:flex;align-items:center;justify-content:center;min-height:100%;}
+    .game {
+      position:relative; width:min(92vw,560px); aspect-ratio:9/16;
+      border-radius:18px; box-shadow:0 20px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
+      background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
+      overflow:hidden;
+    }
+    canvas{width:100%; height:100%; display:block; background:transparent;}
+    .hud{
+      position:absolute; inset:0; pointer-events:none; padding:10px 12px; font-weight:600; letter-spacing:.2px;
+      text-shadow:0 1px 0 rgba(0,0,0,.5);
+    }
+    .row{display:flex; justify-content:space-between; align-items:center; gap:8px;}
+    .badge{background:rgba(0,0,0,.25); padding:6px 10px; border-radius:999px; font-size:14px;}
+    .lives{display:flex; gap6:6px; gap:6px;}
+    .heart{width:12px;height:12px;border-radius:3px;transform:rotate(45deg);background:var(--danger);display:inline-block;margin-right:6px;position:relative;top:1px;}
+    .heart::before,.heart::after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:var(--danger);}
+    .heart::before{left:-6px;top:0}
+    .heart::after{left:0;top:-6px}
+    .overlay{
+      position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background:linear-gradient(180deg, rgba(7,9,24,.35), rgba(7,9,24,.7)); backdrop-filter: blur(4px);
+      color:var(--text); text-align:center; padding:20px; gap:14px;
+    }
+    .hidden{display:none;}
+    h1{margin:0;font-size:26px;}
+    .btnbar{display:flex; gap:10px; pointer-events:auto;}
+    button{
+      pointer-events:auto; appearance:none; border:0; padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer;
+      background:var(--accent); color:#081022; box-shadow:0 8px 20px rgba(102,170,255,.35);
+    }
+    button.secondary{ background:#2a2f57; color:#dfe6ff; box-shadow:none; }
+    .controls{
+      position:absolute; left:0; right:0; bottom:0; display:flex; gap:10px; padding:10px; justify-content:space-between;
+      pointer-events:auto;
+    }
+    .ctl{
+      flex:1; padding:12px 0; border-radius:12px; border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.25); color:#dfe6ff; font-weight:800; text-align:center; user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    @media (min-width:720px){
+      .controls{display:none;}
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="game" id="game">
+    <canvas id="c" aria-label="Câmp de joc"></canvas>
+
+    <div class="hud">
+      <div class="row">
+        <div class="badge" id="score">Scor: 0</div>
+        <div class="badge" id="level">Nivel: 1</div>
+        <div class="badge lives" id="lives" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="overlay" id="startOverlay">
+      <h1>Dodge!</h1>
+      <p>Evita obstacolele. Mișcă-te cu <b>←/→</b> sau <b>A/D</b>. <b>P</b> = pauză.</p>
+      <div class="btnbar">
+        <button id="startBtn">Start</button>
+        <button class="secondary" id="howBtn">Instrucțiuni</button>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="howOverlay">
+      <h1>Instrucțiuni</h1>
+      <p>Stai cât mai mult fără să fii lovit. La fiecare 10 secunde jocul devine mai rapid.</p>
+      <p>Ai 3 vieți. <b>R</b> repornește după Game Over.</p>
+      <div class="btnbar">
+        <button id="playBtn">Joacă</button>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="gameOver">
+      <h1>Game Over</h1>
+      <p id="finalStats">Scor: 0 • Nivel: 1</p>
+      <div class="btnbar">
+        <button id="restartBtn">Joacă din nou</button>
+      </div>
+    </div>
+
+    <div class="controls" id="touchControls">
+      <div class="ctl" id="leftCtl">◀︎</div>
+      <div class="ctl" id="rightCtl">▶︎</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const scoreEl = document.getElementById('score');
+  const levelEl = document.getElementById('level');
+  const livesEl = document.getElementById('lives');
+  const startOverlay = document.getElementById('startOverlay');
+  const howOverlay = document.getElementById('howOverlay');
+  const gameOverOverlay = document.getElementById('gameOver');
+  const finalStats = document.getElementById('finalStats');
+
+  const startBtn = document.getElementById('startBtn');
+  const howBtn = document.getElementById('howBtn');
+  const playBtn = document.getElementById('playBtn');
+  const restartBtn = document.getElementById('restartBtn');
+
+  const leftCtl = document.getElementById('leftCtl');
+  const rightCtl = document.getElementById('rightCtl');
+
+  // Game logical size; we will scale for DPR and CSS
+  const W = 360, H = 640;
+
+  // HiDPI scaling
+  function resizeCanvas(){
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // State
+  let running = false;
+  let paused = false;
+  let gameOver = false;
+
+  const state = {
+    score: 0,
+    level: 1,
+    lives: 3,
+    t: 0,
+    speed: 110,           // px/s base fall speed
+    spawnEvery: 700,      // ms
+    lastSpawn: 0,
+    obstacles: [],
+    input: {left:false,right:false},
+    player: {x: W/2-16, y: H-80, w: 32, h: 32, vx:0, speed: 260}
+  };
+
+  function setHUD(){
+    scoreEl.textContent = `Scor: ${Math.floor(state.score)}`;
+    levelEl.textContent = `Nivel: ${state.level}`;
+    livesEl.innerHTML = '';
+    for(let i=0;i<state.lives;i++){
+      const span = document.createElement('span');
+      span.className = 'heart';
+      livesEl.appendChild(span);
+    }
+  }
+  setHUD();
+
+  // Simple WebAudio beeps (no external assets)
+  let audioCtx;
+  function beep(freq=440, dur=0.08, type='sine', gain=0.04){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = type; o.frequency.value = freq;
+      g.gain.value = gain;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start();
+      setTimeout(()=>{ o.stop(); o.disconnect(); g.disconnect(); }, dur*1000);
+    }catch(e){/* ignore */}
+  }
+
+  function resetGame(){
+    state.score = 0;
+    state.level = 1;
+    state.lives = 3;
+    state.t = 0;
+    state.speed = 110;
+    state.spawnEvery = 700;
+    state.lastSpawn = 0;
+    state.obstacles = [];
+    state.player.x = W/2 - state.player.w/2;
+    state.player.y = H - 80;
+    paused = false;
+    gameOver = false;
+    running = true;
+    setHUD();
+  }
+
+  // Inputs
+  const keys = new Set();
+  const KEY_LEFT = ['ArrowLeft','a','A'];
+  const KEY_RIGHT = ['ArrowRight','d','D'];
+
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.key === 'p' || e.key === 'P'){
+      if (!gameOver && running){ paused = !paused; }
+    } else if (e.key === 'r' || e.key === 'R'){
+      if (gameOver) startGame();
+    }
+    keys.add(e.key);
+    updateInput();
+  });
+  window.addEventListener('keyup', (e) => {
+    keys.delete(e.key);
+    updateInput();
+  });
+
+  function updateInput(){
+    state.input.left = [...keys].some(k => KEY_LEFT.includes(k));
+    state.input.right = [...keys].some(k => KEY_RIGHT.includes(k));
+  }
+
+  // Touch controls (mobile)
+  function bindTouch(el, on, off){
+    const start = () => on();
+    const end = () => off();
+    el.addEventListener('touchstart', (e)=>{ e.preventDefault(); start(); }, {passive:false});
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+    el.addEventListener('mousedown', (e)=>{ e.preventDefault(); start(); });
+    el.addEventListener('mouseup', end);
+    el.addEventListener('mouseleave', end);
+  }
+  bindTouch(leftCtl, ()=>{ state.input.left = true; }, ()=>{ state.input.left = false; });
+  bindTouch(rightCtl, ()=>{ state.input.right = true; }, ()=>{ state.input.right = false; });
+
+  // Obstacles
+  function spawnObstacle(){
+    const w = 20 + Math.random()*60;
+    const x = Math.random()*(W - w);
+    const color = Math.random()<0.25 ? '#ff8e53' : '#9aa7ff';
+    state.obstacles.push({x, y:-30, w, h:14 + Math.random()*26, vy: state.speed + Math.random()*70, color});
+  }
+
+  function aabb(a,b){
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  // Background stars for parallax
+  const stars = Array.from({length: 90}, () => ({
+    x: Math.random()*W, y: Math.random()*H, r: Math.random()*1.5 + 0.3, s: Math.random()*30+10
+  }));
+
+  // Loop
+  let last = performance.now();
+  function frame(now){
+    const dt = Math.min(0.033, (now - last)/1000); // cap delta ~30ms
+    last = now;
+
+    if (running && !paused && !gameOver){
+      update(dt);
+      draw();
+    } else {
+      // still draw subtle background when paused or overlays visible
+      draw();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function update(dt){
+    state.t += dt;
+    state.score += dt * 10;
+
+    // Difficulty ramp
+    if (Math.floor(state.t) > (state.level-1)*10){
+      state.level++;
+      state.speed += 18;
+      state.spawnEvery = Math.max(260, state.spawnEvery - 40);
+      beep(900,0.08,'triangle',0.03);
+      setHUD();
+    }
+
+    // Move player
+    const p = state.player;
+    p.vx = (state.input.left ? -1:0) + (state.input.right ? 1:0);
+    p.x += p.vx * p.speed * dt;
+    p.x = Math.max(6, Math.min(W - p.w - 6, p.x));
+
+    // Spawn
+    state.lastSpawn += dt*1000;
+    if (state.lastSpawn >= state.spawnEvery){
+      state.lastSpawn = 0;
+      spawnObstacle();
+    }
+
+    // Update obstacles
+    for (const o of state.obstacles){
+      o.y += o.vy * dt;
+    }
+    // Remove off-screen
+    state.obstacles = state.obstacles.filter(o => o.y < H + 40);
+
+    // Collisions
+    for (const o of state.obstacles){
+      if (aabb(p, o)){
+        // consume one life and give a brief invulnerability window
+        hit();
+        break;
+      }
+    }
+  }
+
+  let invuln = 0;
+  function hit(){
+    if (invuln > 0) return;
+    state.lives--;
+    setHUD();
+    beep(200,0.12,'sawtooth',0.04);
+    invuln = 1.2; // seconds
+    // Knockback
+    state.player.y = H - 86;
+    // Flash effect via obstacle clear
+    state.obstacles.splice(0, state.obstacles.length);
+    if (state.lives <= 0){
+      endGame();
+    } else {
+      // temporary slow down and visual cue
+      const id = setInterval(()=>{ invuln -= 0.1; if (invuln<=0){ invuln=0; clearInterval(id);} }, 100);
+    }
+  }
+
+  function endGame(){
+    gameOver = true; running = false;
+    finalStats.textContent = `Scor: ${Math.floor(state.score)} • Nivel: ${state.level}`;
+    startOverlay.classList.add('hidden');
+    howOverlay.classList.add('hidden');
+    gameOverOverlay.classList.remove('hidden');
+  }
+
+  function draw(){
+    // Clear
+    ctx.clearRect(0,0,W,H);
+
+    // Parallax stars
+    for (const s of stars){
+      s.y += (s.s/60);
+      if (s.y > H) s.y = -2, s.x = Math.random()*W;
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fillStyle = '#cfd7ff'; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Lane glow
+    const grd = ctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'rgba(102,170,255,.08)');
+    grd.addColorStop(1,'rgba(102,170,255,.0)');
+    ctx.fillStyle = grd; ctx.fillRect(0,0,W,H);
+
+    // Player
+    const p = state.player;
+    if (invuln>0){ ctx.globalAlpha = (Math.sin(performance.now()/60)+1.7)/2.7; }
+    ctx.fillStyle = '#66aaff';
+    roundRect(ctx, p.x, p.y, p.w, p.h, 6, true);
+    ctx.globalAlpha = 1;
+
+    // Obstacles
+    for (const o of state.obstacles){
+      ctx.fillStyle = o.color;
+      roundRect(ctx, o.x, o.y, o.w, o.h, 4, true);
+      // subtle highlight
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = '#ffffff';
+      roundRect(ctx, o.x+2, o.y+2, o.w-4, 2, 3, true);
+      ctx.globalAlpha = 1;
+    }
+
+    // If paused or overlays, show hint
+    if (paused && !gameOver){
+      overlayText('Pauză', 'Apasă P pentru a continua');
+    }
+  }
+
+  function overlayText(title, subtitle){
+    ctx.fillStyle = 'rgba(7,9,24,.55)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#e9ecff'; ctx.textAlign='center';
+    ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(title, W/2, H/2 - 12);
+    ctx.font = '500 14px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(subtitle, W/2, H/2 + 16);
+  }
+
+  function roundRect(ctx, x, y, w, h, r, fill){
+    if (w<2*r) r = w/2; if (h<2*r) r = h/2;
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    if (fill) ctx.fill(); else ctx.stroke();
+  }
+
+  function startGame(){
+    startOverlay.classList.add('hidden');
+    howOverlay.classList.add('hidden');
+    gameOverOverlay.classList.add('hidden');
+    resetGame();
+    running = true;
+    last = performance.now();
+  }
+
+  // Buttons
+  startBtn.addEventListener('click', startGame);
+  howBtn.addEventListener('click', ()=>{ startOverlay.classList.add('hidden'); howOverlay.classList.remove('hidden'); });
+  playBtn.addEventListener('click', startGame);
+  restartBtn.addEventListener('click', startGame);
+
+  // Start in idle (overlay visible)
+})();
+</script>
+</body>
+</html>
